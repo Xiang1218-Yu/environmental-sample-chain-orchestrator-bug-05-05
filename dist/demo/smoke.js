@@ -40,15 +40,22 @@ app.batches.markReady(batch.id);
 app.batches.start(batch.id, '2026-10-06T11:00:00.000Z');
 const run = app.results.registerRun({ tenantId, projectId, batchId: batch.id, externalRunId: 'RUN-001', rawFileHash: 'raw-hash-001', instrumentSoftwareVersion: 'instrument-7.2', startedAt: '2026-10-06T11:10:00.000Z' });
 app.results.completeRun(run.id, '2026-10-06T12:00:00.000Z', 'COMPLETED');
-const result = app.results.ingestRevision({ tenantId, projectId, batchId: batch.id, runId: run.id, ...(aliquots[0] ? { aliquotId: aliquots[0].id } : {}), analyte: 'lead', value: 0.12, unit: 'mg/L', detectionLimit: 0.01, qualityFlags: [], instrumentSoftwareVersion: 'instrument-7.2', contentHash: 'result-hash-001' });
-app.quality.decide({ tenantId, projectId, batchId: batch.id, resultId: result.id, decision: 'APPROVED', reason: 'within protocol limits', ruleVersion: 'quality-v2', reviewerId: 'reviewer_01' });
+const result = app.results.ingestRevision({ tenantId, projectId, batchId: batch.id, runId: run.id, ...(aliquots[0] ? { aliquotId: aliquots[0].id } : {}), analyte: 'lead', value: 0.12, unit: 'mg/L', detectionLimit: 0.01, qualityFlags: [], instrumentSoftwareVersion: 'instrument-7.2', contentHash: 'result-hash-001', revisionNumber: 1 });
+const blank = app.results.ingestRevision({ tenantId, projectId, batchId: batch.id, runId: run.id, controlKind: 'BLANK', analyte: 'lead', value: 0.001, unit: 'mg/L', detectionLimit: 0.01, qualityFlags: [], instrumentSoftwareVersion: 'instrument-7.2', contentHash: 'blank-hash-001', revisionNumber: 1 });
+app.quality.decide({ tenantId, projectId, batchId: batch.id, resultId: result.id, decision: 'APPROVED', reason: 'within protocol limits', ruleVersion: 'quality-v2', reviewerId: 'reviewer_01', clientOperationId: 'review-001' });
+app.quality.decide({ tenantId, projectId, batchId: batch.id, resultId: blank.id, decision: 'APPROVED', reason: 'blank below detection limit', ruleVersion: 'quality-v2', reviewerId: 'reviewer_01', clientOperationId: 'review-002' });
+app.quality.approveBatch(batch.id, 'reviewer_01');
+const evidence = app.evidence.generate({ tenantId, projectId, requestKey: 'evidence-001' });
 console.log(JSON.stringify({
     projectId,
     sampleId: sealed.sample.id,
     containerId: sealed.container.id,
     aliquotIds: aliquots.map((item) => item.id),
     batchId: batch.id,
+    batchStatus: batch.status,
     resultId: result.id,
+    evidenceId: evidence.id,
+    manifestHash: evidence.manifestHash,
     auditCount: app.store.audit.length,
     outboxCount: app.store.outbox.length,
 }, null, 2));

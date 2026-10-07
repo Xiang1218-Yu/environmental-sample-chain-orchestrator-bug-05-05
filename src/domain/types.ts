@@ -115,6 +115,7 @@ export interface AnalysisBatch extends Versioned {
   protocolVersion: string;
   instrumentType: string;
   status: BatchStatus;
+  rejectionKind?: 'RETEST_REQUIRED' | 'REJECTED';
   memberAliquotIds: AliquotId[];
   requiredControls: ControlRequirement[];
   controlResultIds: ResultId[];
@@ -174,6 +175,9 @@ export interface QualityDecision extends Versioned {
   reason: string;
   ruleVersion: string;
   reviewerId: UserId;
+  batchVersion: number;
+  resultRevisionNumber: number;
+  clientOperationId?: string;
   decidedAt: string;
 }
 
