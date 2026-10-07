@@ -12,7 +12,7 @@ export class ResultService {
         }
         const batch = assertFound(this.store.batches.get(input.batchId), 'batch.not_found', 'batch not found');
         assertCondition(batch.tenantId === input.tenantId && batch.projectId === input.projectId, 'scope.forbidden', 'batch is outside the requested project');
-        assertCondition(batch.status === 'RUNNING' || batch.status === 'RESULTS_PENDING', 'result.batch_not_running', 'batch is not accepting instrument runs');
+        assertCondition(batch.status === 'RUNNING' || batch.status === 'RESULTS_PENDING' || batch.status === 'REJECTED', 'result.batch_not_running', 'batch is not accepting instrument runs');
         const run = { id: this.store.nextId('run'), tenantId: input.tenantId, projectId: input.projectId, batchId: input.batchId, externalRunId: input.externalRunId, rawFileHash: input.rawFileHash, instrumentSoftwareVersion: input.instrumentSoftwareVersion, startedAt: input.startedAt, status: 'REGISTERED', version: 1 };
         this.store.runs.set(run.id, run);
         batch.status = 'RESULTS_PENDING';
@@ -32,14 +32,22 @@ export class ResultService {
         const run = assertFound(this.store.runs.get(input.runId), 'result.run_not_found', 'instrument run not found');
         const batch = assertFound(this.store.batches.get(input.batchId), 'batch.not_found', 'batch not found');
         assertCondition(run.batchId === batch.id && run.projectId === input.projectId && batch.projectId === input.projectId, 'scope.forbidden', 'result does not belong to the requested batch');
-        const current = this.findCurrent(input);
-        if (current) {
-            if (current.contentHash === input.contentHash)
-                return current;
-            const next = this.findNextRevision(input, current);
-            return this.createRevision(input, next, current.id);
+        const chain = this.findChain(input);
+        // a retried upload of already-seen content is a pure replay: it returns the
+        // revision that recorded it and must never resurrect superseded content as current.
+        const replay = chain.find((result) => result.contentHash === input.contentHash);
+        if (replay)
+            return replay;
+        assertCondition(batch.status === 'RUNNING' || batch.status === 'RESULTS_PENDING' || batch.status === 'UNDER_REVIEW' || batch.status === 'REJECTED', 'result.batch_closed', 'batch is concluded and no longer accepts result revisions');
+        const current = chain.filter((result) => result.status === 'CURRENT').sort((a, b) => b.revisionNumber - a.revisionNumber)[0];
+        const nextRevision = Math.max(0, ...chain.map((result) => result.revisionNumber)) + 1;
+        const created = this.createRevision(input, nextRevision, current?.id);
+        if (batch.status === 'REJECTED') {
+            batch.status = 'RESULTS_PENDING';
+            batch.version += 1;
+            this.store.addAudit({ tenantId: input.tenantId, projectId: input.projectId, action: 'batch.reopened', entity: 'batch', entityId: batch.id, metadata: { resultId: created.id, revisionNumber: created.revisionNumber } });
         }
-        return this.createRevision(input, 1);
+        return created;
     }
     createRevision(input, revisionNumber, supersedesRevisionId) {
         const result = {
@@ -73,10 +81,7 @@ export class ResultService {
         this.store.addOutbox({ tenantId: input.tenantId, projectId: input.projectId, topic: 'result.revision-created', aggregateId: result.id, payload: JSON.stringify({ resultId: result.id, batchId: input.batchId, revisionNumber }) });
         return result;
     }
-    findCurrent(input) {
-        return [...this.store.results.values()].filter((result) => result.projectId === input.projectId && result.batchId === input.batchId && result.analyte === input.analyte && result.aliquotId === input.aliquotId && result.controlKind === input.controlKind && result.status === 'CURRENT').sort((a, b) => b.revisionNumber - a.revisionNumber)[0];
-    }
-    findNextRevision(input, current) {
-        return Math.max(current.revisionNumber + 1, ...[...this.store.results.values()].filter((result) => result.batchId === input.batchId && result.analyte === input.analyte && result.aliquotId === input.aliquotId && result.controlKind === input.controlKind).map((result) => result.revisionNumber + 1));
+    findChain(input) {
+        return [...this.store.results.values()].filter((result) => result.projectId === input.projectId && result.batchId === input.batchId && result.analyte === input.analyte && result.aliquotId === input.aliquotId && result.controlKind === input.controlKind);
     }
 }

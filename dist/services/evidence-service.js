@@ -17,6 +17,16 @@ export class EvidenceService {
         const transfers = [...this.store.transfers.values()].filter((transfer) => transfer.tenantId === input.tenantId && transfer.projectId === input.projectId && projectContainers.some((container) => container.id === transfer.containerId));
         assertCondition(projectSamples.length > 0, 'evidence.no_samples', 'project has no samples to export');
         assertCondition(projectBatches.every((batch) => batch.status === 'APPROVED' || input.includeRejected), 'evidence.batch_not_approved', 'all exported batches must be approved');
+        // every current result of an approved batch must carry an approval bound to its
+        // exact revision and fingerprint, otherwise the package would certify stale state.
+        for (const batch of projectBatches) {
+            if (batch.status !== 'APPROVED')
+                continue;
+            for (const result of results.filter((item) => item.batchId === batch.id)) {
+                const boundApproval = quality.some((decision) => decision.resultId === result.id && decision.decision === 'APPROVED' && decision.resultRevision === result.revisionNumber && decision.resultContentHash === result.contentHash);
+                assertCondition(boundApproval, 'evidence.result_unapproved', `result ${result.id} revision ${result.revisionNumber} has no bound approval`);
+            }
+        }
         const packageId = existing?.id ?? this.store.nextId('evidence');
         const snapshotVersion = this.store.audit.length + this.store.outbox.length + this.store.samples.size + this.store.results.size;
         const sourceIds = { sampleIds: projectSamples.map((sample) => sample.id), containerIds: projectContainers.map((container) => container.id), batchIds: projectBatches.map((batch) => batch.id), resultIds: results.map((result) => result.id), qualityDecisionIds: quality.map((decision) => decision.id) };

@@ -123,6 +123,8 @@ export interface AnalysisBatch extends Versioned {
   startedAt?: string;
   frozenAt?: string;
   approvedAt?: string;
+  approvedVersion?: number;
+  approvedResultIds?: ResultId[];
 }
 
 export interface ControlRequirement {
@@ -175,6 +177,10 @@ export interface QualityDecision extends Versioned {
   ruleVersion: string;
   reviewerId: UserId;
   decidedAt: string;
+  batchVersion: number;
+  resultRevision: number;
+  resultContentHash: string;
+  clientOperationId?: string;
 }
 
 export interface EvidencePackage extends Versioned {
